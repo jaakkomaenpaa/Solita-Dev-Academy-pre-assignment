@@ -5,6 +5,8 @@
  * 
  * On Windows commandline: javac CSVImporter.java,
  * then: java -classpath ".;sqlite-jdbc-3.40.0.0.jar" CSVImporter 
+ * 
+ * Function dropTable() is not being used for anything at the moment.
  */
 
 
@@ -14,9 +16,10 @@ import java.util.ArrayList;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 
 public class CSVImporter {
-
+     
     static String DATABASE = "jdbc:sqlite:journeys.db";
     //static String STATIONFILE = "Helsingin_ja_Espoon_kaupunkipy%C3%B6r%C3%A4asemat_avoin.csv";
 
@@ -28,19 +31,25 @@ public class CSVImporter {
         //journeyFiles.addAll(Arrays.asList("2021-05.csv", "2021-06.csv", "2021-07.csv"));
 
         journeyFiles.add("journeytest.csv"); // ALSO TEST
-
-        createTables();
         
-        importData(STATIONFILE,"station");
-
-        for (String file : journeyFiles) {
-            importData(file, "journey");
+        if (!tableExists("station")) {
+            createStationTable();
+            importData(STATIONFILE,"station");
         }
+
+        if (!tableExists("journey")) {
+            createJourneyTable();
+            for (String file : journeyFiles) {
+                importData(file, "journey");
+            }
+        }
+        
     }
 
-    public static void createTables() {
+    public static void createStationTable() {
         
         try {
+           
             Connection connection = DriverManager.getConnection(DATABASE);
 
             String stationTable = """
@@ -63,6 +72,22 @@ public class CSVImporter {
                 )
                 """;
 
+            connection.createStatement().execute(stationTable);
+
+            connection.close();
+
+        } catch (Exception e) {
+            System.out.println("Database problem");
+            e.printStackTrace();
+        }
+
+    }
+
+    public static void createJourneyTable() {
+        try {
+            
+            Connection connection = DriverManager.getConnection(DATABASE);
+
             String journeyTable = """
                 CREATE TABLE journey (
                     departure  			DATETIME,
@@ -78,7 +103,6 @@ public class CSVImporter {
                 )
                 """;
 
-            connection.createStatement().execute(stationTable);
             connection.createStatement().execute(journeyTable);
 
             connection.close();
@@ -93,7 +117,7 @@ public class CSVImporter {
     public static void importData(String fileName, String tableName) {
 
         try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {
-
+           
             Connection connection = DriverManager.getConnection(DATABASE);
 
             String line = "";
@@ -132,6 +156,14 @@ public class CSVImporter {
     private static void insertJourneyRow (String[] values, Connection conn) {
 
         try {
+
+            int distance = Integer.parseInt(values[6]);
+            int duration = Integer.parseInt(values[7]);
+
+            if (distance < 10 || duration < 10 || values.length < 8) {
+                return;
+            }
+
             PreparedStatement statement = conn.prepareStatement(
             "INSERT INTO journey VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 
@@ -140,8 +172,8 @@ public class CSVImporter {
             for (int i = 2; i < 6; i++) {
                 statement.setString(i + 1, values[i]);
             }
-            statement.setInt(7, Integer.parseInt(values[6]));
-            statement.setInt(8, Integer.parseInt(values[7]));
+            statement.setInt(7, distance);
+            statement.setInt(8, duration);
 
             statement.execute();
 
@@ -155,6 +187,11 @@ public class CSVImporter {
     private static void insertStationRow (String[] values, Connection conn) {
 
         try {
+
+            if (values.length < 13) {
+                return;
+            }
+
             PreparedStatement statement = conn.prepareStatement(
             "INSERT INTO station VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
@@ -172,6 +209,41 @@ public class CSVImporter {
         } catch (Exception e) {
             System.out.println("Inserting station failed.");
             e.printStackTrace();
+        }
+    }
+
+    private static void dropTable (String tableName) {
+        try {
+        
+            Connection connection = DriverManager.getConnection(DATABASE);
+            connection.createStatement().execute("DROP TABLE " + tableName);
+            connection.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
+
+    }
+
+    private static boolean tableExists (String tableName) {
+        try {
+
+            Connection connection = DriverManager.getConnection(DATABASE);
+            String query = "PRAGMA table_info(" + tableName + ")"; 
+            ResultSet results = connection.createStatement().executeQuery(query);
+
+            if (results.next()) {
+                results.close();
+                connection.close();
+                return true;
+            } else {
+                connection.close();
+                return false;
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
         }
     }
 }
